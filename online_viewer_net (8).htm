@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Space Heroes: Misi Planet Zeta</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Bubblegum+Sans&family=Orbitron:wght@400;700&display=swap');
+    
+    /* Animation Keyframes */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+    
+    @keyframes float {
+      0% { transform: translateY(0px); }
+      50% { transform: translateY(-10px); }
+      100% { transform: translateY(0px); }
+    }
+    
+    @keyframes rocketLaunch {
+      0% { transform: translateY(0) scale(1); }
+      50% { transform: translateY(-20px) scale(1.1); }
+      100% { transform: translateY(0) scale(1); }
+    }
+
+    @keyframes rocketBlastOff {
+      0% { transform: translateY(0) scale(1); opacity: 1; }
+      100% { transform: translateY(-100vh) scale(0.5); opacity: 0; }
+    }
+
+    body {
+      font-family: 'Bubblegum Sans', cursive;
+      background: #0a0e2e;
+      color: #fff;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      overflow-x: hidden;
+    }
+
+    .background-image {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: -1;
+      opacity: 0.8;
+    }
+
+    .screen {
+      background: rgba(10, 14, 46, 0.95);
+      padding: 2rem;
+      border-radius: 20px;
+      border: 3px solid #4e7dff;
+      box-shadow: 0 0 30px rgba(78, 125, 255, 0.3);
+      max-width: 600px;
+      margin: 1rem;
+      position: relative;
+      display: none;
+      animation: fadeIn 0.5s ease-out;
+    }
+
+    #start-screen, #name-screen, #rules-screen, #game-screen, #win-screen, #story-screen {
+      display: none;
+    }
+
+    #start-screen {
+      display: block;
+    }
+
+    h1 {
+      color: #ffcc00;
+      font-family: 'Orbitron', sans-serif;
+      text-shadow: 0 0 15px #ffcc00;
+      margin: 0 0 1.5rem;
+    }
+
+    #start-screen h1 {
+      animation: pulse 2s infinite;
+    }
+
+    .button {
+      background: #4e7dff;
+      color: white;
+      border: 2px solid #ffcc00;
+      padding: 1rem 2rem;
+      font-size: 1.2rem;
+      border-radius: 50px;
+      cursor: pointer;
+      margin-top: 1rem;
+      transition: all 0.3s;
+      font-family: 'Orbitron', sans-serif;
+    }
+
+    #start-btn {
+      animation: rocketLaunch 2s infinite;
+    }
+
+    .button:hover {
+      background: #3a6bf5;
+      transform: scale(1.05);
+      box-shadow: 0 0 15px #4e7dff;
+    }
+
+    #name-input {
+      background: rgba(255,255,255,0.1);
+      border: 2px solid #4e7dff;
+      color: white;
+      padding: 0.8rem;
+      border-radius: 10px;
+      font-size: 1.1rem;
+      width: 80%;
+      margin: 1rem 0;
+      text-align: center;
+    }
+
+    .rules {
+      text-align: left;
+      background: rgba(0,0,0,0.3);
+      padding: 1rem;
+      border-radius: 10px;
+      margin: 1rem 0;
+    }
+
+    .game-container {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 1.5rem;
+      border-radius: 15px;
+      margin: 1rem 0;
+    }
+
+    .problem {
+      font-size: 2.5rem;
+      margin: 1.5rem 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .answer-box {
+      background: rgba(255, 255, 255, 0.1);
+      border: 2px dashed #4e7dff;
+      border-radius: 10px;
+      padding: 1rem;
+      min-width: 100px;
+      margin: 1rem auto;
+      font-size: 2rem;
+    }
+
+    .options {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin: 1.5rem 0;
+    }
+
+    .option {
+      background: rgba(255, 204, 0, 0.2);
+      border: 2px solid #ffcc00;
+      padding: 1rem;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .option:hover {
+      background: rgba(255, 204, 0, 0.3);
+      transform: scale(1.1);
+    }
+
+    .status {
+      display: flex;
+      justify-content: space-between;
+      margin: 1rem 0;
+      font-size: 1.2rem;
+    }
+
+    #timer {
+      color: #ffcc00;
+      font-family: 'Orbitron', sans-serif;
+    }
+
+    .feedback {
+      margin: 1rem 0;
+      font-size: 1.2rem;
+      min-height: 1.5rem;
+    }
+
+    .correct {
+      color: #4CAF50;
+      text-shadow: 0 0 10px #4CAF50;
+    }
+
+    .incorrect {
+      color: #FF5252;
+      text-shadow: 0 0 10px #FF5252;
+    }
+
+    #next-btn {
+      background: #666 !important;
+      color: #ccc !important;
+      border-color: #999 !important;
+      cursor: not-allowed !important;
+    }
+
+    #next-btn.active {
+      background: #4e7dff !important;
+      color: white !important;
+      border-color: #ffcc00 !important;
+      cursor: pointer !important;
+    }
+
+    .lives-container {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+      margin: 1rem 0;
+    }
+
+    .life {
+      color: #FF5252;
+      font-size: 1.5rem;
+    }
+
+    #win-screen h1 {
+      animation: pulse 1s infinite;
+    }
+
+    .win-message {
+      font-size: 1.5rem;
+      margin: 1rem 0;
+    }
+
+    .win-stats {
+      background: rgba(0,0,0,0.3);
+      padding: 1rem;
+      border-radius: 10px;
+      margin: 1rem 0;
+    }
+
+    .story-image {
+      max-width: 100%;
+      border-radius: 15px;
+      margin: 1rem 0;
+      border: 3px solid #4e7dff;
+      box-shadow: 0 0 20px rgba(78, 125, 255, 0.5);
+      animation: float 3s ease-in-out infinite;
+    }
+
+    .story-text {
+      background: rgba(0,0,0,0.3);
+      padding: 1rem;
+      border-radius: 10px;
+      margin: 1rem 0;
+    }
+
+    .story-next {
+      animation: rocketLaunch 2s infinite;
+    }
+
+    /* Music control button */
+    .music-control {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(78, 125, 255, 0.7);
+      color: white;
+      border: 2px solid #ffcc00;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      z-index: 100;
+      font-size: 1.5rem;
+    }
+
+    /* Hide audio elements */
+    .hidden-audio {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <img class="background-image" src="https://i.imgur.com/MEJGBFV.jpeg" alt="Space Background">
+
+  <div class="screen" id="start-screen">
+    <h1>🚀 Space Heroes 🪐</h1>
+    <img src="https://i.imgur.com/Y8GIztk.jpeg" alt="Space Adventure" style="max-width: 100%; border-radius: 15px; margin: 1rem 0; border: 3px solid #4e7dff;">
+    <p>Selamatkan Planet Zeta dengan kemampuan matematikamu!</p>
+    <button class="button" id="start-btn">Mulai Misi</button>
+  </div>
+
+  <div class="screen" id="name-screen">
+    <h1>🛸 Nama Panggilan Space Hero</h1>
+    <input type="text" id="name-input" placeholder="Masukkan nama kamu" maxlength="15">
+    <button class="button" id="name-submit">Lanjutkan</button>
+  </div>
+
+  <div class="screen" id="story-screen">
+    <h1>🌌 Misi Penyelamatan Planet Zeta</h1>
+    <img class="story-image" src="https://i.imgur.com/Y8GIztk.jpeg" alt="Story Illustration">
+    <div class="story-text">
+      <p>Planet Zeta sedang dalam bahaya besar! Generator matematika mereka yang mengendalikan gravitasi planet sedang rusak.</p>
+      <p>Sebagai Space Hero terpilih, misimu adalah memperbaiki generator dengan menyelesaikan soal-soal pecahan bilangan bulat.</p>
+      <p>Setiap jawaban benar akan mengisi energi generator. Kamu harus mengumpulkan 100 energi sebelum waktu habis!</p>
+      <p>Gunakan kemampuan matematikamu untuk menyelamatkan seluruh penduduk Planet Zeta dari bencana gravitasi!</p>
+    </div>
+    <button class="button story-next" id="story-next">Mulai Misi</button>
+  </div>
+
+  <div class="screen" id="rules-screen">
+    <h1>📜 Panduan Misi</h1>
+    <div class="rules">
+      <p><strong>Cara Bermain:</strong></p>
+      <ol>
+        <li>Jawab soal pecahan bilangan bulat dengan benar</li>
+        <li>Pilih jawaban dengan mengklik angka</li>
+        <li>Tekan "Cek Jawaban" untuk memverifikasi</li>
+        <li>Jika benar, tekan "Soal Berikut"</li>
+        <li>Kumpulkan 100 energi untuk menang</li>
+        <li>Kamu memiliki 3 nyawa</li>
+        <li>Selesaikan dalam waktu 5 menit</li>
+      </ol>
+      <p>Level akan semakin sulit setiap 40 poin!</p>
+      <p>Level 1: Bilangan positif kecil</p>
+      <p>Level 2: Bilangan negatif dan positif</p>
+      <p>Level 3: Bilangan besar dengan nilai negatif dan positif</p>
+    </div>
+    <button class="button" id="rules-next">Mulai Permainan</button>
+  </div>
+
+  <div class="screen" id="game-screen">
+    <h1 id="player-title">Space Hero: <span id="player-name"></span></h1>
+    <div class="game-container">
+      <div class="problem">
+        <span id="num1">0</span>
+        <span id="operator">+</span>
+        <span id="num2">0</span>
+        <span>=</span>
+        <div class="answer-box" id="answer"></div>
+      </div>
+
+      <div class="options" id="options"></div>
+
+      <div class="feedback" id="feedback"></div>
+
+      <div class="status">
+        <div>Energi: <span id="score">0</span>/100</div>
+        <div>Level: <span id="level">1</span></div>
+        <div>Waktu: <span id="timer">05:00</span></div>
+      </div>
+
+      <div class="lives-container">
+        <span class="life">❤️</span>
+        <span class="life">❤️</span>
+        <span class="life">❤️</span>
+      </div>
+
+      <button class="button" id="check-btn">Cek Jawaban</button>
+      <button class="button" id="next-btn">Soal Berikut</button>
+    </div>
+  </div>
+
+  <div class="screen" id="win-screen">
+    <h1>🎉 SELAMAT <span id="winner-name"></span>! 🎉</h1>
+    <div class="win-message">Kamu berhasil menyelamatkan Planet Zeta!</div>
+    <div class="win-stats">
+      <p>Total Waktu: <span id="final-time">00:00</span></p>
+      <p>Energi Dikumpulkan: <span id="final-score">100</span>/100</p>
+      <p>Level Tertinggi: <span id="final-level">3</span></p>
+    </div>
+    <button class="button" id="play-again-btn">Main Lagi</button>
+  </div>
+
+  <!-- Music Control Button -->
+  <div class="music-control" id="music-toggle">🎵</div>
+
+  <!-- Audio Elements -->
+  <audio id="correct-sound" src="https://www.soundjay.com/buttons/sounds/button-21.mp3" class="hidden-audio"></audio>
+  <audio id="wrong-sound" src="https://www.soundjay.com/buttons/sounds/button-10.mp3" class="hidden-audio"></audio>
+  <audio id="button-sound" src="https://www.soundjay.com/buttons/sounds/button-04.mp3" class="hidden-audio"></audio>
+  
+  <!-- Background Music -->
+  <iframe id="background-music" src="https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/1782510086&color=%23ff5500&auto_play=false&hide_related=false&show_comments=true&show_user=true&show_reposts=false&show_teaser=true&visual=true" class="hidden-audio"></iframe>
+
+  <script>
+    let currentLevel = 1;
+    let score = 0;
+    let timeLeft = 300; // 5 minutes in seconds
+    let timerId;
+    let correctAnswer;
+    let playerName = "";
+    let answerChecked = false;
+    let lives = 3;
+    let startTime;
+    const MAX_SCORE = 100;
+    let isMusicPlaying = false;
+
+    const correctSound = document.getElementById('correct-sound');
+    const wrongSound = document.getElementById('wrong-sound');
+    const buttonSound = document.getElementById('button-sound');
+    const bgMusic = document.getElementById('background-music');
+    const musicToggle = document.getElementById('music-toggle');
+
+    function playButtonSound() {
+      buttonSound.currentTime = 0;
+      buttonSound.play().catch(e => console.log("Error playing sound:", e));
+    }
+
+    function toggleMusic() {
+      const scWidget = SC.Widget('background-music');
+      if (isMusicPlaying) {
+        scWidget.pause();
+        musicToggle.textContent = "🔇";
+      } else {
+        scWidget.play();
+        musicToggle.textContent = "🔊";
+      }
+      isMusicPlaying = !isMusicPlaying;
+    }
+
+    function showScreen(screenId) {
+      document.querySelectorAll('.screen').forEach(screen => {
+        screen.style.display = 'none';
+      });
+      document.getElementById(screenId).style.display = 'block';
+    }
+
+    function updateLives() {
+      const lifeElements = document.querySelectorAll('.life');
+      lifeElements.forEach((life, index) => {
+        life.textContent = index < lives ? '❤️' : '💔';
+      });
+    }
+
+    // Event Listeners
+    document.getElementById('start-btn').addEventListener('click', () => {
+      playButtonSound();
+      showScreen('story-screen');
+    });
+    
+    document.getElementById('name-submit').addEventListener('click', () => {
+      playButtonSound();
+      playerName = document.getElementById('name-input').value.trim();
+      if (playerName === "") {
+        alert("Masukkan nama terlebih dahulu!");
+        return;
+      }
+      document.getElementById('player-name').textContent = playerName;
+      showScreen('rules-screen');
+    });
+
+    document.getElementById('story-next').addEventListener('click', () => {
+      playButtonSound();
+      showScreen('name-screen');
+    });
+    
+    document.getElementById('rules-next').addEventListener('click', () => {
+      playButtonSound();
+      startGame();
+    });
+    
+    document.getElementById('play-again-btn').addEventListener('click', () => {
+      playButtonSound();
+      showScreen('start-screen');
+    });
+
+    musicToggle.addEventListener('click', toggleMusic);
+
+    function startGame() {
+      showScreen('game-screen');
+      resetGame();
+      generateProblem();
+      startTimer();
+      // Start music automatically when game starts
+      toggleMusic();
+    }
+
+    function generateProblem() {
+      let num1, num2;
+
+      currentLevel = score < 40 ? 1 : (score < 70 ? 2 : 3);
+      
+      if (currentLevel === 1) {
+        num1 = Math.floor(Math.random() * 20) + 1;
+        num2 = Math.floor(Math.random() * 20) + 1;
+      } else if (currentLevel === 2) {
+        num1 = Math.floor(Math.random() * 30) - 10;
+        num2 = Math.floor(Math.random() * 30) - 10;
+      } else {
+        num1 = Math.floor(Math.random() * 50) - 25;
+        num2 = Math.floor(Math.random() * 50) - 25;
+      }
+
+      correctAnswer = num1 + num2;
+
+      document.getElementById('num1').textContent = num1;
+      document.getElementById('num2').textContent = num2;
+      document.getElementById('answer').textContent = '';
+      document.getElementById('level').textContent = currentLevel;
+      document.getElementById('feedback').textContent = '';
+      document.getElementById('next-btn').classList.remove('active');
+      answerChecked = false;
+
+      generateOptions(correctAnswer);
+    }
+
+    function generateOptions(correct) {
+      const optionsContainer = document.getElementById('options');
+      optionsContainer.innerHTML = '';
+      const answers = new Set([correct]);
+
+      while (answers.size < 4) {
+        let rand = correct + Math.floor(Math.random() * (currentLevel === 1 ? 10 : 20)) - (currentLevel === 1 ? 5 : 10);
+        answers.add(rand !== correct ? rand : correct + 1);
+      }
+
+      const answersArray = Array.from(answers);
+      for (let i = answersArray.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [answersArray[i], answersArray[j]] = [answersArray[j], answersArray[i]];
+      }
+
+      answersArray.forEach(answer => {
+        const option = document.createElement('div');
+        option.className = 'option';
+        option.textContent = answer;
+        option.addEventListener('click', () => {
+          if (!answerChecked) {
+            document.getElementById('answer').textContent = answer;
+            playButtonSound();
+          }
+        });
+        optionsContainer.appendChild(option);
+      });
+    }
+
+    document.getElementById('check-btn').addEventListener('click', () => {
+      playButtonSound();
+      if (answerChecked) return;
+      
+      const userAnswer = parseInt(document.getElementById('answer').textContent);
+      const feedback = document.getElementById('feedback');
+
+      if (isNaN(userAnswer)) {
+        feedback.textContent = "Pilih jawaban terlebih dahulu!";
+        feedback.className = "feedback incorrect";
+        return;
+      }
+
+      answerChecked = true;
+
+      if (userAnswer === correctAnswer) {
+        feedback.textContent = "Benar! +5 Energi 🎉";
+        feedback.className = "feedback correct";
+        score += 5;
+        document.getElementById('score').textContent = score;
+        document.getElementById('next-btn').classList.add('active');
+        
+        correctSound.currentTime = 0;
+        correctSound.play().catch(e => console.log("Error playing sound:", e));
+        
+        if (score >= MAX_SCORE) {
+          setTimeout(showWinScreen, 1000);
+        }
+      } else {
+        feedback.textContent = "Salah! Coba lagi 💫";
+        feedback.className = "feedback incorrect";
+        lives--;
+        updateLives();
+        
+        wrongSound.currentTime = 0;
+        wrongSound.play().catch(e => console.log("Error playing sound:", e));
+        
+        answerChecked = false;
+        document.getElementById('answer').textContent = '';
+        
+        if (lives <= 0) {
+          setTimeout(() => {
+            alert("Nyawa habis! Misi gagal 😢");
+            showScreen('start-screen');
+          }, 500);
+        }
+      }
+    });
+
+    function showWinScreen() {
+      clearInterval(timerId);
+      const minutes = Math.floor((300 - timeLeft) / 60);
+      const seconds = (300 - timeLeft) % 60;
+      const timeString = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+      
+      document.getElementById('winner-name').textContent = playerName;
+      document.getElementById('final-time').textContent = timeString;
+      document.getElementById('final-score').textContent = score;
+      document.getElementById('final-level').textContent = currentLevel;
+      
+      showScreen('win-screen');
+    }
+
+    document.getElementById('next-btn').addEventListener('click', () => {
+      playButtonSound();
+      if (document.getElementById('next-btn').classList.contains('active')) {
+        generateProblem();
+      }
+    });
+
+    function startTimer() {
+      clearInterval(timerId);
+      timeLeft = 300;
+      startTime = Date.now();
+      updateTimerDisplay();
+      
+      timerId = setInterval(() => {
+        timeLeft = 300 - Math.floor((Date.now() - startTime) / 1000);
+        if (timeLeft <= 0) {
+          clearInterval(timerId);
+          timeLeft = 0;
+          alert("Waktu habis! Misi gagal 😢");
+          showScreen('start-screen');
+        }
+        updateTimerDisplay();
+      }, 1000);
+    }
+
+    function updateTimerDisplay() {
+      const minutes = Math.floor(timeLeft / 60);
+      const seconds = timeLeft % 60;
+      document.getElementById('timer').textContent = 
+        `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
+
+    function resetGame() {
+      clearInterval(timerId);
+      currentLevel = 1;
+      score = 0;
+      timeLeft = 300;
+      lives = 3;
+      answerChecked = false;
+      document.getElementById('score').textContent = '0';
+      document.getElementById('level').textContent = '1';
+      document.getElementById('next-btn').classList.remove('active');
+      updateLives();
+    }
+
+    // Initialize SoundCloud Widget API
+    document.addEventListener('DOMContentLoaded', function() {
+      // Load SoundCloud SDK
+      const script = document.createElement('script');
+      script.src = 'https://w.soundcloud.com/player/api.js';
+      document.body.appendChild(script);
+    });
+  </script>
+</body>
+</html>
