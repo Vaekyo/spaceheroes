@@ -273,6 +273,25 @@
       animation: rocketLaunch 2s infinite;
     }
 
+    /* Music control button */
+    .music-control {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(78, 125, 255, 0.7);
+      color: white;
+      border: 2px solid #ffcc00;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      z-index: 100;
+      font-size: 1.5rem;
+    }
+
     /* Hide audio elements */
     .hidden-audio {
       display: none;
@@ -371,16 +390,16 @@
     <button class="button" id="play-again-btn">Main Lagi</button>
   </div>
 
+  <!-- Music Control Button -->
+  <div class="music-control" id="music-toggle">🎵</div>
+
   <!-- Audio Elements -->
-  <audio id="correct-sound" src="https://www.soundjay.com/buttons/sounds/button-09.mp3" class="hidden-audio"></audio>
+  <audio id="correct-sound" src="https://www.soundjay.com/buttons/sounds/button-21.mp3" class="hidden-audio"></audio>
   <audio id="wrong-sound" src="https://www.soundjay.com/buttons/sounds/button-10.mp3" class="hidden-audio"></audio>
   <audio id="button-sound" src="https://www.soundjay.com/buttons/sounds/button-04.mp3" class="hidden-audio"></audio>
   
   <!-- Background Music -->
   <iframe id="background-music" src="https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/1782510086&color=%23ff5500&auto_play=false&hide_related=false&show_comments=true&show_user=true&show_reposts=false&show_teaser=true&visual=true" class="hidden-audio"></iframe>
-  
-  <!-- Win Sound -->
-  <iframe id="win-sound" src="https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/1782510087&color=%23ff5500&auto_play=false&hide_related=false&show_comments=true&show_user=true&show_reposts=false&show_teaser=true&visual=true" class="hidden-audio"></iframe>
 
   <script>
     let currentLevel = 1;
@@ -393,32 +412,29 @@
     let lives = 3;
     let startTime;
     const MAX_SCORE = 100;
+    let isMusicPlaying = false;
 
     const correctSound = document.getElementById('correct-sound');
     const wrongSound = document.getElementById('wrong-sound');
-    const winSound = document.getElementById('win-sound');
     const buttonSound = document.getElementById('button-sound');
     const bgMusic = document.getElementById('background-music');
+    const musicToggle = document.getElementById('music-toggle');
 
     function playButtonSound() {
       buttonSound.currentTime = 0;
       buttonSound.play().catch(e => console.log("Error playing sound:", e));
     }
 
-    function playBackgroundMusic() {
-      // SoundCloud player needs to be triggered through their API
+    function toggleMusic() {
       const scWidget = SC.Widget('background-music');
-      scWidget.play();
-    }
-
-    function stopBackgroundMusic() {
-      const scWidget = SC.Widget('background-music');
-      scWidget.pause();
-    }
-
-    function playWinSound() {
-      const scWidget = SC.Widget('win-sound');
-      scWidget.play();
+      if (isMusicPlaying) {
+        scWidget.pause();
+        musicToggle.textContent = "🔇";
+      } else {
+        scWidget.play();
+        musicToggle.textContent = "🔊";
+      }
+      isMusicPlaying = !isMusicPlaying;
     }
 
     function showScreen(screenId) {
@@ -426,12 +442,6 @@
         screen.style.display = 'none';
       });
       document.getElementById(screenId).style.display = 'block';
-      
-      if (screenId === 'game-screen') {
-        playBackgroundMusic();
-      } else {
-        stopBackgroundMusic();
-      }
     }
 
     function updateLives() {
@@ -473,11 +483,15 @@
       showScreen('start-screen');
     });
 
+    musicToggle.addEventListener('click', toggleMusic);
+
     function startGame() {
       showScreen('game-screen');
       resetGame();
       generateProblem();
       startTimer();
+      // Start music automatically when game starts
+      toggleMusic();
     }
 
     function generateProblem() {
@@ -599,7 +613,6 @@
       document.getElementById('final-score').textContent = score;
       document.getElementById('final-level').textContent = currentLevel;
       
-      playWinSound();
       showScreen('win-screen');
     }
 
@@ -655,12 +668,6 @@
       script.src = 'https://w.soundcloud.com/player/api.js';
       document.body.appendChild(script);
     });
-
-    // Initialize with background music attempt
-    document.addEventListener('click', function initializeMusic() {
-      playBackgroundMusic();
-      document.removeEventListener('click', initializeMusic);
-    }, { once: true });
   </script>
 </body>
 </html>
