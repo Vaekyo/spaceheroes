@@ -10,12 +10,14 @@ Supported and tested: **Blender 4.2 LTS, 4.5 LTS, 5.0, 5.2 LTS**. The 5.0 compos
 
 ## Install
 
-1. Download `dist/ae_layer_split-1.1.1.zip`. Don't unzip it.
+1. Download `dist/ae_layer_split-1.1.2.zip`. Don't unzip it.
 2. In Blender 4.2 or newer: **Edit → Preferences → Get Extensions → ⌄ (top right) → Install from Disk…** and pick the zip. You can also drag the zip into the Blender window.
    - Legacy route (same zip, uses `bl_info`): **Preferences → Add-ons → ⌄ → Install from Disk…**, then tick *AE Layer Split*.
 3. In the 3D Viewport press **N** and open the **AE Split** tab.
 
 To rebuild the zip from source: `python build.py`. No Blender needed.
+
+**Updating:** install the new zip, then **restart Blender** (or disable and re-enable the add-on). Blender keeps running the old code until then. The panel shows the running version at the bottom, and a red warning at the top if the installed files are newer than the running code. In After Effects, delete the old comp before running a newly exported `.jsx`; the `.jsx` header and its final popup show which version made it.
 
 ## Use
 

@@ -628,6 +628,11 @@ def check_jsx_in_ae_mock(node, jsx, scene, anchor, points, ppu, jump):
     if dump.get("error"):
         return
     check(not any("error" in a.lower() for a in dump["alerts"]), f"[{mode}] no error popup {dump['alerts']}")
+    with open(jsx, encoding="utf-8") as f:
+        first_line = f.readline()
+    check(core.VERSION in first_line, f"[{mode}] .jsx header names version {core.VERSION}")
+    check(any(f"AE Split {core.VERSION}:" in a for a in dump["alerts"]),
+          f"[{mode}] final AE popup names version {core.VERSION}")
     comp = dump["comps"][0]
     layers = {l["id"]: l for l in comp["layers"]}
     by_name = {l["name"]: l for l in comp["layers"]}
@@ -789,8 +794,25 @@ def test_camera_export():
     check(run(bpy.ops.ae_split.export_camera_jsx) == {"CANCELLED"}, "no camera -> error")
 
 
+def test_versions():
+    print("\n[Version]")
+    import re
+    manifest = os.path.join(HERE, "ae_layer_split", "blender_manifest.toml")
+    with open(manifest, encoding="utf-8") as f:
+        on_disk = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), re.M).group(1)
+    bl = ".".join(str(v) for v in ae_layer_split.bl_info["version"])
+    check(on_disk == core.VERSION == bl, f"manifest {on_disk}, VERSION {core.VERSION}, bl_info {bl} agree")
+    check(core.stale_version_warning() is None, "no stale-code warning for the real install")
+    fake = os.path.join(TMP, "blender_manifest.toml")
+    with open(manifest, encoding="utf-8") as src, open(fake, "w", encoding="utf-8") as dst:
+        dst.write(src.read().replace(f'version = "{core.VERSION}"', 'version = "9.9.9"'))
+    msg = core.stale_version_warning(fake)
+    check(msg is not None and "9.9.9" in msg and core.VERSION in msg,
+          f"newer files on disk -> restart warning ({msg})")
+
+
 def main():
-    tests = (test_png_cycles, test_exr_and_reopen, test_eevee, test_make_char_and_errors,
+    tests = (test_versions, test_png_cycles, test_exr_and_reopen, test_eevee, test_make_char_and_errors,
              test_camera_export, test_panel_draw)
     for test in tests:
         try:

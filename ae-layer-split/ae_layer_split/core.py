@@ -35,10 +35,16 @@ Undo after save/reopen
 """
 
 import json
+import os
+import re
 
 import bpy
 
 from . import compat
+
+#: Version of the code that is running. Must match blender_manifest.toml and
+#: bl_info (test.py checks this).
+VERSION = "1.1.2"
 
 STATE_KEY = "ae_split_state"
 TAG = "ae_split"                      # custom property marking add-on data
@@ -65,6 +71,47 @@ KEEP_TYPES = {"CAMERA", "LIGHT", "LIGHT_PROBE", "SPEAKER"}
 
 class SetupError(Exception):
     """A user-facing problem; the message is shown with ``self.report``."""
+
+
+# -----------------------------------------------------------------------------
+# Installed vs running version
+# -----------------------------------------------------------------------------
+
+_MANIFEST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "blender_manifest.toml")
+_disk_version_cache = {}
+
+
+def disk_version(manifest_path=_MANIFEST):
+    """Version in the manifest on disk, or None if it can't be read.
+
+    Installing a new zip over an enabled add-on replaces the files, but
+    Blender keeps running the already loaded (old) Python code until it is
+    restarted. Comparing this with VERSION detects that.
+    """
+    try:
+        mtime = os.path.getmtime(manifest_path)
+    except OSError:
+        return None
+    cached = _disk_version_cache.get(manifest_path)
+    if cached and cached[0] == mtime:
+        return cached[1]
+    try:
+        with open(manifest_path, encoding="utf-8") as f:
+            match = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), re.M)
+    except OSError:
+        return None
+    version = match.group(1) if match else None
+    _disk_version_cache[manifest_path] = (mtime, version)
+    return version
+
+
+def stale_version_warning(manifest_path=_MANIFEST):
+    """Message if the installed files are newer than the running code, else None."""
+    installed = disk_version(manifest_path)
+    if installed and installed != VERSION:
+        return (f"Add-on files are version {installed} but Blender still runs {VERSION}. "
+                "Restart Blender to finish the update.")
+    return None
 
 
 # -----------------------------------------------------------------------------

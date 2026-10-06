@@ -20,6 +20,13 @@ class AESPLIT_PT_main(bpy.types.Panel):
         scene = context.scene
         settings = scene.ae_split
         active = core.is_active(scene)
+
+        stale = core.stale_version_warning()
+        if stale:
+            warn = layout.box()
+            warn.alert = True
+            for line in ("Restart Blender to finish the update!", stale):
+                warn.label(text=line, icon="ERROR")
         cycles = core.is_cycles(scene)
 
         # --- Character -------------------------------------------------------
@@ -122,6 +129,7 @@ class AESPLIT_PT_main(bpy.types.Panel):
     @staticmethod
     def _draw_status(layout, context, settings, active):
         box = layout.box()
+        box.label(text=f"AE Layer Split {core.VERSION}", icon="INFO")
         if active:
             state = core.get_state(context.scene) or {}
             box.label(text=f"Setup ACTIVE ({state.get('format', '?')})", icon="CHECKMARK")

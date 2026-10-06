@@ -175,7 +175,8 @@ class AESPLIT_OT_export_camera(bpy.types.Operator):
             self.report({"ERROR"}, f"Could not write the .jsx: {err}")
             return {"CANCELLED"}
         _report_warnings(self, warnings)
-        self.report({"INFO"}, f"Camera exported: {path}  (AE: File > Scripts > Run Script File)")
+        self.report({"INFO"}, f"AE Split {core.VERSION}: camera exported to {path}  "
+                              "(AE: File > Scripts > Run Script File)")
         return {"FINISHED"}
 
 

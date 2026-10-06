@@ -13,7 +13,7 @@ node group and File Output changes) live in ``compat.py``.
 bl_info = {
     "name": "AE Layer Split",
     "author": "vaekyo",
-    "version": (1, 1, 1),
+    "version": (1, 1, 2),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar (N) > AE Split",
     "description": "One-click character / background view layer split and camera export for After Effects",

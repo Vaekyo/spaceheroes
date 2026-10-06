@@ -8,6 +8,7 @@
 //   * setting a hidden property throws (a one-node camera's Point of
 //     Interest; Orientation / X / Y Rotation on a 2D layer),
 //   * layer.property(name) returns null for unknown match names,
+//   * setting an alpha mode on footage without an alpha channel throws,
 //   * `layer.parent = p` (old AE, no setParentWithJump) compensates the
 //     child's transform, so any value the script relies on must be set again.
 // The resulting comp is written as JSON so test.py can rebuild the camera.
@@ -160,8 +161,18 @@ const sandbox = {
     project: {
       items: { addComp(...a) { const c = new Comp(...a); comps.push(c); return c; } },
       importFile(opts) {
-        const item = { name: opts.file.path.split("/").pop(), path: opts.file.path, sequence: opts.sequence,
-                       mainSource: { alphaMode: "PREMULTIPLIED", conformFrameRate: 0 } };
+        const path = opts.file.path;
+        const hasAlpha = /\.(png|exr)$/i.test(path) && !/noalpha/i.test(path);
+        let alphaMode = hasAlpha ? "PREMULTIPLIED" : "IGNORE";
+        const mainSource = {
+          hasAlpha, conformFrameRate: 0,
+          get alphaMode() { return alphaMode; },
+          set alphaMode(v) {
+            if (!hasAlpha) { throw new Error("After Effects error: footage has no alpha channel"); }
+            alphaMode = v;
+          },
+        };
+        const item = { name: path.split("/").pop(), path, sequence: opts.sequence, mainSource };
         imported.push(item);
         return item;
       },
