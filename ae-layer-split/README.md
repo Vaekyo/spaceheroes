@@ -10,7 +10,7 @@ Supported and tested: **Blender 4.2 LTS, 4.5 LTS, 5.0, 5.2 LTS**. The 5.0 compos
 
 ## Install
 
-1. Download `dist/ae_layer_split-1.1.0.zip`. Don't unzip it.
+1. Download `dist/ae_layer_split-1.1.1.zip`. Don't unzip it.
 2. In Blender 4.2 or newer: **Edit → Preferences → Get Extensions → ⌄ (top right) → Install from Disk…** and pick the zip. You can also drag the zip into the Blender window.
    - Legacy route (same zip, uses `bl_info`): **Preferences → Add-ons → ⌄ → Install from Disk…**, then tick *AE Layer Split*.
 3. In the 3D Viewport press **N** and open the **AE Split** tab.
@@ -94,7 +94,8 @@ The renders are CG, so you already have the exact camera: no need to 3D-track th
 Notes:
 - Run the export after rendering, or render first and then run the .jsx. If the renders don't exist yet, the script still builds the comp and tells you which files it couldn't find.
 - **Why the rig:** each null carries one rotation axis (Y, then X, then Z), so the camera can't come out in the wrong rotation order. The math is tested to reproject every point within 0.001 px of Blender's own camera, and the axis signs are checked against Blender's long-standing AE exporter.
-- **Quick check in AE:** turn on the anchor null (or put a small solid on it) and scrub. It should stay glued to the same spot of the BG render.
+- **Quick check in AE:** turn on the anchor null (or put a small solid on it) and scrub. It should stay glued to the same spot of the BG render. The camera must be layer 1 of the comp; if the script ever hits a problem it says so in a popup, and Ctrl+Z removes the half-built comp.
+- Only values that change get keyframes. A static anchor is a plain value, so you can drag the `AE_TEXT_ANCHOR` null (and the text with it) anywhere.
 - **Not supported:** lens shift (set Shift X/Y to 0), orthographic cameras, and camera switching with markers. The panel warns about each of these.
 
 ## Test
@@ -117,7 +118,8 @@ The test loads the add-on from the `ae_layer_split/` folder next to it (no insta
 - Make CHAR from Selected
 - error cases
 - the panel draw
-- camera export: a moving camera with a lens change, resolution %, fps_base, portrait and sensor fit modes, compared pixel-for-pixel with Blender's projection; the JSX is syntax-checked with Node if it is installed
+- camera export: a moving camera with a lens change, resolution %, fps_base, portrait and sensor fit modes, compared pixel-for-pixel with Blender's projection
+- the generated `.jsx`, run in `ae_mock.js` (a small After Effects scripting mock for Node) in both AE parenting modes; the camera is rebuilt from the resulting layers and checked against Blender on every frame. Needs Node.js; skipped otherwise
 
 ## Source layout
 
@@ -132,6 +134,7 @@ ae_layer_split/
   operators.py             operators
   ui.py                    N-panel
 test.py                    background test
+ae_mock.js                 After Effects scripting mock used by test.py
 build.py                   builds dist/ae_layer_split-<version>.zip
 ```
 

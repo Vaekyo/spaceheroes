@@ -580,6 +580,94 @@ def max_reprojection_error(scene, cam_samples, points_by_frame, ppu):
     return worst
 
 
+def run_ae_mock(node, jsx, jump):
+    import json as _json
+    import subprocess
+    out = jsx + (".mock.json" if jump else ".mock-nojump.json")
+    cmd = [node, os.path.join(HERE, "ae_mock.js"), jsx, out] + ([] if jump else ["--no-jump"])
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        return {"error": res.stderr}
+    with open(out, encoding="utf-8") as f:
+        return _json.load(f)
+
+
+def _prop_at(prop, t):
+    if "keys" in prop:
+        times = prop["keys"]["times"]
+        i = min(range(len(times)), key=lambda k: abs(times[k] - t))
+        assert abs(times[i] - t) < 1e-6, f"no key at t={t}"
+        return prop["keys"]["values"][i]
+    return prop["value"]
+
+
+def ae_layer_world(layers, layer, t):
+    """World matrix of an AE layer from the mock dump (AE axes, pixels)."""
+    p = layer["props"]
+    pos = Vector(_prop_at(p["ADBE Position"], t))
+    rx, ry, rz = (_prop_at(p[n], t) for n in ("ADBE Rotate X", "ADBE Rotate Y", "ADBE Rotate Z"))
+    assert _prop_at(p["ADBE Orientation"], t) == [0, 0, 0], "orientation must stay 0"
+    assert sum(1 for a in (rx, ry, rz) if abs(a) > 1e-9) <= 1, "one rotation axis per layer"
+    scale = [v / 100.0 for v in _prop_at(p["ADBE Scale"], t)]
+    local = (Matrix.Translation(pos)
+             @ Matrix.Rotation(math.radians(rx), 4, "X")
+             @ Matrix.Rotation(math.radians(ry), 4, "Y")
+             @ Matrix.Rotation(math.radians(rz), 4, "Z")
+             @ Matrix.Diagonal(Vector(scale + [1.0])))
+    if layer["kind"] != "camera":      # a camera's "anchor point" is its point of interest
+        local = local @ Matrix.Translation(-Vector(_prop_at(p["ADBE Anchor Point"], t)))
+    if layer["parent"] is None:
+        return local
+    return ae_layer_world(layers, layers[layer["parent"]], t) @ local
+
+
+def check_jsx_in_ae_mock(node, jsx, scene, anchor, points, ppu, jump):
+    mode = "setParentWithJump" if jump else "old-style parent ="
+    dump = run_ae_mock(node, jsx, jump)
+    check(not dump.get("error"), f"[{mode}] .jsx runs to the end in the AE mock {(dump.get('error') or '')[:300]}")
+    if dump.get("error"):
+        return
+    check(not any("error" in a.lower() for a in dump["alerts"]), f"[{mode}] no error popup {dump['alerts']}")
+    comp = dump["comps"][0]
+    layers = {l["id"]: l for l in comp["layers"]}
+    by_name = {l["name"]: l for l in comp["layers"]}
+    cam = next(l for l in comp["layers"] if l["kind"] == "camera")
+    check(cam["index"] == 1 and cam["autoOrient"] == "NO_AUTO_ORIENT", f"[{mode}] one-node camera on top")
+    anchor_root = by_name[anchor.name]
+    check("keys" not in anchor_root["props"]["ADBE Position"],
+          f"[{mode}] static anchor is not keyframed (can be dragged in AE)")
+    text = next((l for l in comp["layers"] if l["kind"] == "text"), None)
+    if dump["imported"]:
+        check(all(i["sequence"] and i["alphaMode"] == "STRAIGHT" for i in dump["imported"]),
+              f"[{mode}] renders imported as sequences with straight alpha")
+        order = [by_name[n]["index"] for n in ("CHAR", text["name"], "BG")] if text else []
+        check(order == sorted(order), f"[{mode}] layer order CHAR > text > BG {order}")
+    w, h = comp["width"], comp["height"]
+    worst = worst_text = 0.0
+    frame_step = scene.frame_step
+    for i, f in enumerate(range(scene.frame_start, scene.frame_end + 1, frame_step)):
+        t = (f - scene.frame_start) / ae_export.fps(scene)
+        scene.frame_set(f)
+        world = ae_layer_world(layers, cam, t)
+        sample = {"position": world.translation,
+                  "zoom": _prop_at(cam["props"]["ADBE Camera Zoom"], t)}
+        rot = world.to_3x3().normalized()
+        for point in [anchor.matrix_world.translation] + points:
+            p = rot.transposed() @ (Vector(ae_world(scene, point, ppu)) - sample["position"])
+            ax, ay = w / 2 + sample["zoom"] * p.x / p.z, h / 2 + sample["zoom"] * p.y / p.z
+            bx, by = blender_pixel(scene, point)
+            worst = max(worst, abs(ax - bx), abs(ay - by))
+        if text is not None:
+            centre = ae_layer_world(layers, text, t) @ Vector(_prop_at(text["props"]["ADBE Anchor Point"], t))
+            target = Vector(ae_world(scene, anchor.matrix_world.translation, ppu))
+            worst_text = max(worst_text, (centre - target).length)
+    scene.frame_set(scene.frame_start)
+    check(worst < 0.5, f"[{mode}] camera rebuilt from the .jsx matches Blender on every frame "
+                       f"(max error {worst:.4f} px)")
+    if text is not None:
+        check(worst_text < 0.01, f"[{mode}] text sits on the anchor ({worst_text:.5f} px)")
+
+
 def test_camera_export():
     print("\n[Camera -> After Effects export]")
     import json as _json
@@ -688,12 +776,10 @@ def test_camera_export():
               and data["footage"]["BG"].endswith("BG/BG_0001.png"), "footage paths match the renders")
         node = shutil.which("node") or next((p for p in ("/opt/node20/bin/node",) if os.path.exists(p)), None)
         if node:
-            js_copy = jsx[:-1]          # node only parses .js
-            shutil.copyfile(jsx, js_copy)
-            res = subprocess.run([node, "--check", js_copy], capture_output=True, text=True)
-            check(res.returncode == 0, f"jsx parses as JavaScript {res.stderr.strip()[:200]}")
+            for jump in (True, False):
+                check_jsx_in_ae_mock(node, jsx, scene, anchor, hero_corners, s.px_per_unit, jump)
         else:
-            print("  skip  node not found, jsx syntax not checked")
+            print("  skip  node not found, the .jsx was not run through the AE mock")
 
     # Errors
     s.output_path = "//render/"
