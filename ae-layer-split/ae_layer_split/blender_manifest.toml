@@ -1,0 +1,16 @@
+schema_version = "1.0.0"
+
+id = "ae_layer_split"
+version = "1.0.0"
+name = "AE Layer Split"
+tagline = "Split a scene into character and background layers for AE"
+maintainer = "vaekyo"
+type = "add-on"
+
+tags = ["Render", "Compositing"]
+
+blender_version_min = "4.2.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
