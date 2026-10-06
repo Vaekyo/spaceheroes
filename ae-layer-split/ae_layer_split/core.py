@@ -44,7 +44,7 @@ from . import compat
 
 #: Version of the code that is running. Must match blender_manifest.toml and
 #: bl_info (test.py checks this).
-VERSION = "1.1.2"
+VERSION = "1.1.3"
 
 STATE_KEY = "ae_split_state"
 TAG = "ae_split"                      # custom property marking add-on data

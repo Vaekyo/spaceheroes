@@ -10,7 +10,7 @@ Supported and tested: **Blender 4.2 LTS, 4.5 LTS, 5.0, 5.2 LTS**. The 5.0 compos
 
 ## Install
 
-1. Download `dist/ae_layer_split-1.1.2.zip`. Don't unzip it.
+1. Download `dist/ae_layer_split-1.1.3.zip`. Don't unzip it.
 2. In Blender 4.2 or newer: **Edit → Preferences → Get Extensions → ⌄ (top right) → Install from Disk…** and pick the zip. You can also drag the zip into the Blender window.
    - Legacy route (same zip, uses `bl_info`): **Preferences → Add-ons → ⌄ → Install from Disk…**, then tick *AE Layer Split*.
 3. In the 3D Viewport press **N** and open the **AE Split** tab.
@@ -91,6 +91,7 @@ The renders are CG, so you already have the exact camera: no need to 3D-track th
    - `CHAR` (top), then your 3D text, then `BG` (bottom). PNGs are already set to straight alpha.
    - `Camera Rig` (null) → `Camera Rig X` (null) → the camera, keyframed on every frame (position, rotation, zoom).
    - One null chain per anchor (`AE_TEXT_ANCHOR` → `… X` → `… Z`). The text is parented to the last one, so it sits exactly at the Empty.
+   - **Camera cuts:** if cameras are bound to timeline markers (Ctrl+B in the Timeline), the export follows them. There is still one AE camera; it jumps to the next Blender camera exactly at each cut (a hold keyframe, no blend between shots). The comp gets a marker per shot named after the Blender camera, and the panel lists the shots before you export.
 5. Edit the text layer freely (font, size, animators, effects). Keep it **between BG and CHAR** so the character stays in front of it.
 
 Notes:
@@ -98,7 +99,7 @@ Notes:
 - **Why the rig:** each null carries one rotation axis (Y, then X, then Z), so the camera can't come out in the wrong rotation order. The math is tested to reproject every point within 0.001 px of Blender's own camera, and the axis signs are checked against Blender's long-standing AE exporter.
 - **Quick check in AE:** turn on the anchor null (or put a small solid on it) and scrub. It should stay glued to the same spot of the BG render. The camera must be layer 1 of the comp; if the script ever hits a problem it says so in a popup, and Ctrl+Z removes the half-built comp.
 - Only values that change get keyframes. A static anchor is a plain value, so you can drag the `AE_TEXT_ANCHOR` null (and the text with it) anywhere.
-- **Not supported:** lens shift (set Shift X/Y to 0), orthographic cameras, and camera switching with markers. The panel warns about each of these.
+- **Not supported:** lens shift (set Shift X/Y to 0) and orthographic cameras. The export warns about each of these.
 
 ## Test
 

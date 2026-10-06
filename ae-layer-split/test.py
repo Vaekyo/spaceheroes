@@ -703,7 +703,7 @@ def test_camera_export():
     anchor = bpy.data.objects.get(ae_export.ANCHOR_NAME)
     check(anchor is not None and anchor.get(ae_export.ANCHOR_PROP), "anchor Empty created and tagged")
 
-    cam_samples, obj_samples = ae_export.sample_scene(scene, cam, [anchor], s.px_per_unit)
+    cam_samples, obj_samples = ae_export.sample_scene(scene, [anchor], s.px_per_unit)
     check(len(cam_samples) == 24, "camera sampled on every frame")
     check(scene.frame_current == 1, "current frame restored after sampling")
     lenses = [round(x["zoom"], 1) for x in cam_samples]
@@ -718,7 +718,7 @@ def test_camera_export():
     rot = obj_samples[anchor.name][0]["rotation"]
     check(all(abs(a) < 1e-3 for a in rot), f"upright anchor = AE layer at zero rotation ({rot})")
     anchor.rotation_euler = (math.radians(90), 0, math.radians(30))
-    _c, objs = ae_export.sample_scene(scene, cam, [anchor], s.px_per_unit)
+    _c, objs = ae_export.sample_scene(scene, [anchor], s.px_per_unit)
     r = objs[anchor.name][0]["rotation"]
     expected = ae_export.C @ anchor.matrix_world.to_3x3().normalized() @ ae_export.F
     got = ae_export.ae_rotation_matrix(*r)
@@ -747,7 +747,7 @@ def test_camera_export():
     for fit in ("AUTO", "VERTICAL", "HORIZONTAL"):
         scene.render.resolution_x, scene.render.resolution_y = 1080, 1920
         cam.data.sensor_fit = fit
-        cs, _o = ae_export.sample_scene(scene, cam, [], s.px_per_unit)
+        cs, _o = ae_export.sample_scene(scene, [], s.px_per_unit)
         err = max_reprojection_error(scene, cs[:3], lambda f: hero_corners, s.px_per_unit)
         check(err < 0.5, f"portrait + sensor fit {fit} matches (max error {err:.4f} px)")
     scene.render.resolution_x, scene.render.resolution_y = 1920, 1080
@@ -758,7 +758,9 @@ def test_camera_export():
     for frame, z in ((1, 150), (24, 210)):
         pan.rotation_euler = (math.radians(90), 0, math.radians(z))
         pan.keyframe_insert("rotation_euler", frame=frame)
-    cs, _o = ae_export.sample_scene(scene, pan, [], s.px_per_unit)
+    scene.camera = pan
+    cs, _o = ae_export.sample_scene(scene, [], s.px_per_unit)
+    scene.camera = cam
     jumps = [max(abs(a - b) for a, b in zip(cs[i]["rotation"], cs[i + 1]["rotation"]))
              for i in range(len(cs) - 1)]
     check(max(jumps) < 20, f"no rotation jump across 180 degrees (max step {max(jumps):.2f})")
@@ -794,6 +796,89 @@ def test_camera_export():
     check(run(bpy.ops.ae_split.export_camera_jsx) == {"CANCELLED"}, "no camera -> error")
 
 
+def test_camera_cuts():
+    print("\n[Camera cuts with timeline markers]")
+    scene = build_scene("CYCLES")
+    s = configure(scene, "PNG")
+    s.text_placeholder = "cantik"
+    scene.render.resolution_x, scene.render.resolution_y = 1280, 720
+    scene.render.fps, scene.render.fps_base = 30, 1
+    scene.frame_start, scene.frame_end = 1, 24
+
+    cam_a = scene.camera
+    for frame, x in ((1, -1.0), (24, 1.0)):
+        cam_a.location = (x, -10, 1.5)
+        cam_a.keyframe_insert("location", frame=frame)
+    cam_b = add_obj("Camera.001", bpy.data.cameras.new("Camera.001"), scene.collection,
+                    (6, -6, 2.5), (math.radians(80), 0, math.radians(45)))
+    cam_b.data.lens = 24
+    for frame, z in ((1, 2.5), (24, 3.5)):
+        cam_b.location.z = z
+        cam_b.keyframe_insert("location", frame=frame)
+    # Like the user's timeline: Camera first, Camera.001 later. The first
+    # marker sits on frame 3 to also cover "before the first marker".
+    scene.timeline_markers.new("F_03", frame=3).camera = cam_a
+    scene.timeline_markers.new("F_14", frame=14).camera = cam_b
+    scene.camera = cam_b
+
+    shots = ae_export.camera_shots(scene)
+    check([(c.name, a, b) for c, a, b in shots] == [(cam_a.name, 1, 13), (cam_b.name, 14, 24)],
+          f"shots follow the markers ({ae_export.describe_shots(shots)})")
+    agree = True
+    for f in ae_export.frames_of(scene):
+        scene.frame_set(f)
+        agree &= scene.camera == ae_export.active_camera_at(scene, f)
+    check(agree, "active camera rule matches Blender's own switching on every frame")
+
+    scene.frame_set(1)
+    scene.cursor.location = (0.5, -1.0, 1.8)
+    run(bpy.ops.ae_split.add_text_anchor)
+    anchor = bpy.data.objects[ae_export.ANCHOR_NAME]
+    hero_corners = [obj("HeroCube").matrix_world @ Vector(c) for c in obj("HeroCube").bound_box]
+
+    cs, _o = ae_export.sample_scene(scene, [anchor], s.px_per_unit)
+    names = [c["camera"] for c in cs]
+    check(names == [cam_a.name] * 13 + [cam_b.name] * 11, "each frame sampled from its active camera")
+    err = max_reprojection_error(scene, cs, lambda f: [anchor.matrix_world.translation] + hero_corners,
+                                 s.px_per_unit)
+    check(err < 0.5, f"both shots reproject like Blender (max error {err:.4f} px)")
+
+    check(run(bpy.ops.ae_split.export_camera_jsx) == {"FINISHED"}, "Export Camera finished")
+    jsx = os.path.join(TMP, "png", ae_export.JSX_NAME)
+    import json as _json
+    with open(jsx, encoding="utf-8") as f:
+        data = _json.loads(f.read().split("var D = ", 1)[1].split(";\n", 1)[0])
+    check(data["camera"]["cuts"] == [13], f"cut at sample 13 = frame 14 ({data['camera']['cuts']})")
+    check([sh["name"] for sh in data["shots"]] == [cam_a.name, cam_b.name], "two shots in the script")
+
+    node = shutil.which("node") or next((p for p in ("/opt/node20/bin/node",) if os.path.exists(p)), None)
+    if not node:
+        print("  skip  node not found, the .jsx was not run through the AE mock")
+        return
+    for jump in (True, False):
+        mode = "setParentWithJump" if jump else "old-style parent ="
+        check_jsx_in_ae_mock(node, jsx, scene, anchor, hero_corners, s.px_per_unit, jump)
+        dump = run_ae_mock(node, jsx, jump)
+        comp = dump["comps"][0]
+        by_name = {l["name"]: l for l in comp["layers"]}
+        cam_layer = next(l for l in comp["layers"] if l["kind"] == "camera")
+        rig_props = [by_name["Camera Rig"]["props"]["ADBE Position"],
+                     by_name["Camera Rig"]["props"]["ADBE Rotate Y"],
+                     by_name["Camera Rig X"]["props"]["ADBE Rotate X"],
+                     cam_layer["props"]["ADBE Rotate Z"],
+                     cam_layer["props"]["ADBE Camera Zoom"]]
+        keyed = [p["keys"] for p in rig_props if "keys" in p]
+        check(len(keyed) >= 3, f"[{mode}] camera rig is keyframed ({len(keyed)} properties)")
+        # Key 13 (1-based) is frame 13, the last frame of the first shot.
+        check(all(k["outType"][12] == "HOLD" for k in keyed),
+              f"[{mode}] hold keys at the last frame before the cut")
+        check(all(k["outType"].count("HOLD") == 1 for k in keyed),
+              f"[{mode}] no other hold keys")
+        marks = [(round(m["time"] * 30), m["comment"]) for m in comp["markers"]]
+        check(marks == [(0, cam_a.name), (13, cam_b.name)], f"[{mode}] comp markers per shot {marks}")
+        check(cam_layer["name"] == f"{cam_a.name} + {cam_b.name}", f"[{mode}] camera named after both shots")
+
+
 def test_versions():
     print("\n[Version]")
     import re
@@ -813,7 +898,7 @@ def test_versions():
 
 def main():
     tests = (test_versions, test_png_cycles, test_exr_and_reopen, test_eevee, test_make_char_and_errors,
-             test_camera_export, test_panel_draw)
+             test_camera_export, test_camera_cuts, test_panel_draw)
     for test in tests:
         try:
             test()

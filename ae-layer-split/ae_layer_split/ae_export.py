@@ -31,6 +31,13 @@ axis gets its own layer, chained by parenting:
        '- <name> Z  camera / null: Z rotation (+ zoom or scale)
 
 World = T * Ry * Rx * Rz, which is ``to_euler('ZXY')`` in mathutils terms.
+
+Camera cuts
+-----------
+Cameras bound to timeline markers are followed: every frame samples the
+camera Blender renders on that frame. The single AE camera jumps at each cut
+(the key on the last frame of a shot is a hold key) and the comp gets one
+marker per shot.
 The order is fixed by the parenting, not by AE's internal convention. The
 per-axis signs (right-handed, positive) were cross-checked against Blender's
 long-standing "Export: Adobe After Effects" add-on (see test.py).
@@ -133,16 +140,58 @@ def anchor_objects(context):
     scene = context.scene
     result = [o for o in scene.objects if o.get(ANCHOR_PROP)]
     for obj in getattr(context, "selected_objects", []) or []:
-        if obj not in result and obj != scene.camera and obj.type != "CAMERA":
+        if obj not in result and obj.type != "CAMERA":
             result.append(obj)
     return result
 
 
-def sample_scene(scene, cam, anchors, px_per_unit):
-    """Sample camera and anchors on every frame of the scene range."""
+def frames_of(scene):
+    return list(range(scene.frame_start, scene.frame_end + 1, max(1, scene.frame_step)))
+
+
+def active_camera_at(scene, frame):
+    """The camera Blender renders at ``frame``, following camera-bound markers.
+
+    Same rule as Blender: the bound marker with the largest frame <= ``frame``
+    wins; before the first bound marker, the earliest one's camera is used;
+    without bound markers it is ``scene.camera``.
+    """
+    bound = [m for m in scene.timeline_markers if m.camera is not None]
+    if not bound:
+        return scene.camera
+    before = [m for m in bound if m.frame <= frame]
+    if before:
+        return max(before, key=lambda m: m.frame).camera
+    return min(bound, key=lambda m: m.frame).camera
+
+
+def camera_shots(scene):
+    """``[(camera, first_frame, last_frame)]`` over the frame range, in order."""
+    shots = []
+    for f in frames_of(scene):
+        cam = active_camera_at(scene, f)
+        if cam is None:
+            continue
+        if shots and shots[-1][0] == cam:
+            shots[-1][2] = f
+        else:
+            shots.append([cam, f, f])
+    return [tuple(s) for s in shots]
+
+
+def describe_shots(shots):
+    return ", ".join(f"{cam.name} {a}-{b}" for cam, a, b in shots)
+
+
+def sample_scene(scene, anchors, px_per_unit):
+    """Sample the active camera and the anchors on every frame of the range.
+
+    The active camera is read after each ``frame_set``, so camera cuts made
+    with timeline markers are followed.
+    """
     width, height = render_size(scene)
     aspect = (scene.render.pixel_aspect_x, scene.render.pixel_aspect_y)
-    frames = list(range(scene.frame_start, scene.frame_end + 1, max(1, scene.frame_step)))
+    frames = frames_of(scene)
     rate = fps(scene)
     cam_samples = []
     obj_samples = {o.name: [] for o in anchors}
@@ -152,10 +201,13 @@ def sample_scene(scene, cam, anchors, px_per_unit):
         for f in frames:
             scene.frame_set(f)
             t = (f - scene.frame_start) / rate
+            cam = scene.camera
+            if cam is None:
+                raise core.SetupError(f"No active camera at frame {f}.")
             pos, rot, _s, prev["__cam__"] = blender_to_ae(
                 cam.matrix_world, width, height, px_per_unit, prev.get("__cam__"))
             cam_samples.append({
-                "frame": f, "time": t, "position": pos, "rotation": rot,
+                "frame": f, "time": t, "camera": cam.name, "position": pos, "rotation": rot,
                 "zoom": camera_zoom(cam.data, width, height, aspect),
             })
             for obj in anchors:
@@ -169,19 +221,19 @@ def sample_scene(scene, cam, anchors, px_per_unit):
     return cam_samples, obj_samples
 
 
-def collect_warnings(scene, cam):
+def collect_warnings(scene, cameras):
+    """Warnings for every camera used in the frame range."""
     warnings = []
-    data = cam.data
-    if data.type != "PERSP":
-        warnings.append(f"Camera '{cam.name}' is {data.type.lower()}; AE cameras are perspective "
-                        "only, the export will not match.")
-    if abs(data.shift_x) > 1e-6 or abs(data.shift_y) > 1e-6:
-        warnings.append("Camera lens shift is not supported by AE cameras; set Shift X/Y to 0 "
-                        "for an exact match.")
+    for cam in cameras:
+        data = cam.data
+        if data.type != "PERSP":
+            warnings.append(f"Camera '{cam.name}' is {data.type.lower()}; AE cameras are "
+                            "perspective only, the export will not match.")
+        if abs(data.shift_x) > 1e-6 or abs(data.shift_y) > 1e-6:
+            warnings.append(f"Camera '{cam.name}' uses lens shift, which AE cameras don't "
+                            "support; set Shift X/Y to 0 for an exact match.")
     if abs(scene.render.pixel_aspect_x - scene.render.pixel_aspect_y) > 1e-6:
         warnings.append("Non-square pixel aspect: the comp uses it, but double-check the match.")
-    if any(m.camera for m in scene.timeline_markers):
-        warnings.append("Timeline markers switch cameras; only the active camera is exported.")
     return warnings
 
 
@@ -210,6 +262,15 @@ def footage_paths(scene, settings):
     }
 
 
+def _camera_layer_name(cam_samples):
+    names = []
+    for s in cam_samples:
+        if s["camera"] not in names:
+            names.append(s["camera"])
+    name = " + ".join(names)
+    return name if len(name) <= 60 else f"{names[0]} + {len(names) - 1} more"
+
+
 def build_jsx(scene, settings, cam_samples, obj_samples):
     """Return the ExtendScript source (ES3 syntax: var, function, no arrows)."""
     width, height = render_size(scene)
@@ -229,7 +290,10 @@ def build_jsx(scene, settings, cam_samples, obj_samples):
         "text": settings.text_placeholder,
         "textSize": _num(max(settings.px_per_unit, 1.0)),
         "camera": {
-            "name": scene.camera.name,
+            "name": _camera_layer_name(cam_samples),
+            # Sample indices where the active camera changes (cut at that frame).
+            "cuts": [i for i in range(1, len(cam_samples))
+                     if cam_samples[i]["camera"] != cam_samples[i - 1]["camera"]],
             "times": _times(cam_samples),
             "position": [[_num(c) for c in s["position"]] for s in cam_samples],
             "rx": [_num(s["rotation"][0]) for s in cam_samples],
@@ -237,6 +301,9 @@ def build_jsx(scene, settings, cam_samples, obj_samples):
             "rz": [_num(s["rotation"][2]) for s in cam_samples],
             "zoom": [_num(s["zoom"]) for s in cam_samples],
         },
+        "shots": [{"name": s["camera"], "time": float(f"{s['time']:.9f}")}
+                  for i, s in enumerate(cam_samples)
+                  if i == 0 or s["camera"] != cam_samples[i - 1]["camera"]],
         "anchors": [
             {
                 "name": name,
@@ -256,25 +323,29 @@ def build_jsx(scene, settings, cam_samples, obj_samples):
 
 
 def export_camera_jsx(context, settings, filepath=None):
-    """Write the .jsx. Returns ``(path, warnings)``; raises core.SetupError."""
+    """Write the .jsx. Returns ``(path, warnings, shots)``; raises core.SetupError."""
     scene = context.scene
-    cam = scene.camera
-    if cam is None:
+    shots = camera_shots(scene)
+    if not shots:
         raise core.SetupError("The scene has no active camera to export.")
+    if any(active_camera_at(scene, f) is None for f in frames_of(scene)):
+        raise core.SetupError("Some frames have no active camera; bind a camera to a marker "
+                              "or set the scene camera.")
     if settings.output_path.startswith("//") and not bpy.data.filepath:
         raise core.SetupError("Save the .blend first: the output folder is relative to it.")
     if settings.px_per_unit <= 0:
         raise core.SetupError("Pixels per unit must be greater than 0.")
 
     anchors = anchor_objects(context)
-    cam_samples, obj_samples = sample_scene(scene, cam, anchors, settings.px_per_unit)
+    cam_samples, obj_samples = sample_scene(scene, anchors, settings.px_per_unit)
     source = build_jsx(scene, settings, cam_samples, obj_samples)
 
     path = filepath or os.path.join(bpy.path.abspath(core.output_dir(settings)), JSX_NAME)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.write(source)
-    return path, collect_warnings(scene, cam)
+    cameras = list(dict.fromkeys(cam for cam, _a, _b in shots))
+    return path, collect_warnings(scene, cameras), shots
 
 
 def add_text_anchor(context):
@@ -361,7 +432,23 @@ _JSX_TEMPLATE = r"""// AE Layer Split __VERSION__ (Blender add-on) generated thi
         keys(xform(mid, "ADBE Rotate X"), d.times, d.rx);
         keys(xform(leaf, "ADBE Rotate Z"), d.times, d.rz);
         mid.shy = true;
-        return top;
+        return { top: top, mid: mid, leaf: leaf };
+    }
+
+    // Camera cuts: the key on the last frame of a shot holds its value, so
+    // the camera jumps at the cut instead of blending between two cameras
+    // (sub-frames, motion blur). cuts[] are 0-based sample indices of the
+    // first frame of each new shot, which is also the 1-based index of the
+    // key on the last frame of the previous shot.
+    function holdCuts(property, cuts) {
+        if (!property.numKeys) { return; }
+        for (var i = 0; i < cuts.length; i++) {
+            var k = cuts[i];
+            if (k >= 1 && k <= property.numKeys) {
+                property.setInterpolationTypeAtKey(k, property.keyInInterpolationType(k),
+                                                   KeyframeInterpolationType.HOLD);
+            }
+        }
     }
 
     function importSequence(path, straightAlpha) {
@@ -436,8 +523,20 @@ _JSX_TEMPLATE = r"""// AE Layer Split __VERSION__ (Blender add-on) generated thi
     // Camera.
     var cam = comp.layers.addCamera(D.camera.name, [D.width / 2, D.height / 2]);
     cam.autoOrient = AutoOrientType.NO_AUTO_ORIENT;
-    buildRig(comp, "Camera Rig", cam, D.camera, true);
-    keys(prop(cam, "ADBE Camera Options Group", "ADBE Camera Zoom"), D.camera.times, D.camera.zoom);
+    var rig = buildRig(comp, "Camera Rig", cam, D.camera, true);
+    var zoom = prop(cam, "ADBE Camera Options Group", "ADBE Camera Zoom");
+    keys(zoom, D.camera.times, D.camera.zoom);
+    if (D.camera.cuts.length) {
+        var held = [xform(rig.top, "ADBE Position"), xform(rig.top, "ADBE Rotate Y"),
+                    xform(rig.mid, "ADBE Rotate X"), xform(cam, "ADBE Rotate Z"), zoom];
+        for (var h = 0; h < held.length; h++) { holdCuts(held[h], D.camera.cuts); }
+    }
+    // One comp marker per shot, named after the Blender camera.
+    if (D.shots.length > 1) {
+        for (var m = 0; m < D.shots.length; m++) {
+            comp.markerProperty.setValueAtTime(D.shots[m].time, new MarkerValue(D.shots[m].name));
+        }
+    }
     try { prop(cam, "ADBE Camera Options Group", "ADBE Camera Depth of Field").setValue(0); } catch (e) {}
     cam.moveToBeginning();
 
@@ -451,8 +550,9 @@ _JSX_TEMPLATE = r"""// AE Layer Split __VERSION__ (Blender add-on) generated thi
     }
     app.endUndoGroup();
 
-    var msg = "AE Split " + D.version + ": comp '" + D.compName + "' created with the Blender camera and "
-            + D.anchors.length + " anchor(s).";
+    var msg = "AE Split " + D.version + ": comp '" + D.compName + "' created with "
+            + (D.shots.length > 1 ? D.shots.length + " camera shots (" + D.camera.name + ")" : "the Blender camera")
+            + " and " + D.anchors.length + " anchor(s).";
     if (missing.length) {
         msg += "\n\nRenders not found (render first, then re-run or import by hand):\n" + missing.join("\n");
     }

@@ -22,6 +22,8 @@ const withJump = !flags.includes("--no-jump");
 const AutoOrientType = { NO_AUTO_ORIENT: "NO_AUTO_ORIENT", CAMERA_OR_POINT_OF_INTEREST: "CAMERA_OR_POI", ALONG_PATH: "ALONG_PATH" };
 const AlphaMode = { STRAIGHT: "STRAIGHT", PREMULTIPLIED: "PREMULTIPLIED", IGNORE: "IGNORE" };
 const ParagraphJustification = { CENTER_JUSTIFY: "CENTER", LEFT_JUSTIFY: "LEFT" };
+const KeyframeInterpolationType = { LINEAR: "LINEAR", BEZIER: "BEZIER", HOLD: "HOLD" };
+function MarkerValue(comment) { this.comment = String(comment); }
 
 class Property {
   constructor(layer, matchName, value, isHidden) {
@@ -46,8 +48,30 @@ class Property {
   }
   setValuesAtTimes(times, values) {
     if (times.length !== values.length) { throw new Error(`${this.matchName}: times/values length mismatch`); }
+    for (let i = 1; i < times.length; i++) {
+      if (!(times[i] > times[i - 1])) { throw new Error(`${this.matchName}: key times must increase`); }
+    }
     values.forEach((v) => this.check(v));
-    this.keys = { times: times.slice(), values: values.slice() };
+    this.keys = { times: times.slice(), values: values.slice(),
+                  inType: times.map(() => "LINEAR"), outType: times.map(() => "LINEAR") };
+  }
+  get numKeys() { return this.keys ? this.keys.times.length : 0; }
+  _keyIndex(i) {
+    if (!(Number.isInteger(i) && i >= 1 && i <= this.numKeys)) {
+      throw new Error(`${this.matchName}: key index ${i} out of range 1..${this.numKeys}`);
+    }
+    return i - 1;
+  }
+  keyInInterpolationType(i) { return this.keys.inType[this._keyIndex(i)]; }
+  keyOutInterpolationType(i) { return this.keys.outType[this._keyIndex(i)]; }
+  setInterpolationTypeAtKey(i, inType, outType) {
+    const k = this._keyIndex(i);
+    const valid = Object.values(KeyframeInterpolationType);
+    if (!valid.includes(inType) || (outType !== undefined && !valid.includes(outType))) {
+      throw new Error(`${this.matchName}: bad interpolation type`);
+    }
+    this.keys.inType[k] = inType;
+    this.keys.outType[k] = outType === undefined ? inType : outType;
   }
 }
 
@@ -134,7 +158,15 @@ class Comp {
     if (!(duration > 0 && frameRate > 0)) { throw new Error("bad comp duration/fps"); }
     this._layers = [];
     this.displayStartFrame = 0;
+    this._markers = [];
     const comp = this;
+    this.markerProperty = {
+      setValueAtTime(t, value) {
+        if (!(value instanceof MarkerValue)) { throw new Error("marker value must be a MarkerValue"); }
+        if (!(t >= 0 && t < comp.duration + 1e-9)) { throw new Error(`marker time ${t} outside the comp`); }
+        comp._markers.push({ time: t, comment: value.comment });
+      },
+    };
     this.layers = {
       addNull() { return comp._add(new Layer(comp, "Null", "null", { name: "Null" })); },
       addCamera(name, center) {
@@ -181,7 +213,7 @@ const sandbox = {
   },
   File: function (path) { this.path = path; this.exists = fs.existsSync(path); },
   ImportOptions: function (file) { this.file = file; this.sequence = false; },
-  AutoOrientType, AlphaMode, ParagraphJustification,
+  AutoOrientType, AlphaMode, ParagraphJustification, KeyframeInterpolationType, MarkerValue,
   alert(msg) { alerts.push(String(msg)); },
 };
 vm.createContext(sandbox);
@@ -203,6 +235,7 @@ const out = {
   comps: comps.map((c) => ({
     name: c.name, width: c.width, height: c.height, pixelAspect: c.pixelAspect,
     duration: c.duration, frameRate: c.frameRate, displayStartFrame: c.displayStartFrame,
+    markers: c._markers,
     layers: c._layers.map((l) => {
       const props = {};
       for (const [gname, g] of Object.entries(l.groups)) {

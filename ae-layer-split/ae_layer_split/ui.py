@@ -6,6 +6,7 @@ import bpy
 from . import ae_export, compat, core
 
 MAX_LISTED = 12
+MAX_SHOTS = 6
 
 
 class AESPLIT_PT_main(bpy.types.Panel):
@@ -87,9 +88,19 @@ class AESPLIT_PT_main(bpy.types.Panel):
         box = layout.box()
         box.label(text="Camera → After Effects", icon="CAMERA_DATA")
         col = box.column()
-        cam = context.scene.camera
-        col.label(text=f"Camera: {cam.name}" if cam else "No active camera", icon="OUTLINER_OB_CAMERA"
-                  if cam else "ERROR")
+        shots = ae_export.camera_shots(context.scene)
+        if not shots:
+            col.label(text="No active camera", icon="ERROR")
+        elif len(shots) == 1:
+            col.label(text=f"Camera: {shots[0][0].name}", icon="OUTLINER_OB_CAMERA")
+        else:
+            col.label(text=f"{len(shots)} camera shots (markers), one AE camera that cuts:",
+                      icon="OUTLINER_OB_CAMERA")
+            shown = shots[:MAX_SHOTS]
+            for cam, first, last in shown:
+                col.label(text=f"   {cam.name}: frames {first}-{last}")
+            if len(shots) > MAX_SHOTS:
+                col.label(text=f"   ... and {len(shots) - MAX_SHOTS} more")
         row = col.row(align=True)
         row.operator("ae_split.add_text_anchor", icon="EMPTY_AXIS")
         n_anchors = len(ae_export.anchor_objects(context))

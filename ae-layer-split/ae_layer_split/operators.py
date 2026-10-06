@@ -167,7 +167,7 @@ class AESPLIT_OT_export_camera(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            path, warnings = ae_export.export_camera_jsx(context, context.scene.ae_split)
+            path, warnings, shots = ae_export.export_camera_jsx(context, context.scene.ae_split)
         except core.SetupError as err:
             self.report({"ERROR"}, str(err))
             return {"CANCELLED"}
@@ -175,7 +175,8 @@ class AESPLIT_OT_export_camera(bpy.types.Operator):
             self.report({"ERROR"}, f"Could not write the .jsx: {err}")
             return {"CANCELLED"}
         _report_warnings(self, warnings)
-        self.report({"INFO"}, f"AE Split {core.VERSION}: camera exported to {path}  "
+        self.report({"INFO"}, f"AE Split {core.VERSION}: {len(shots)} camera shot(s) "
+                              f"({ae_export.describe_shots(shots)}) exported to {path}  "
                               "(AE: File > Scripts > Run Script File)")
         return {"FINISHED"}
 
