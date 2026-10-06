@@ -3,7 +3,7 @@
 
 import bpy
 
-from . import compat, core
+from . import ae_export, compat, core
 
 MAX_LISTED = 12
 
@@ -69,8 +69,30 @@ class AESPLIT_PT_main(bpy.types.Panel):
         col.operator("ae_split.setup_and_render", icon="RENDER_ANIMATION")
         col.operator("ae_split.remove_setup", icon="TRASH")
 
+        # --- Camera -> After Effects -------------------------------------------
+        self._draw_camera_export(layout, context, settings)
+
         # --- Status -----------------------------------------------------------
         self._draw_status(layout, context, settings, active)
+
+    @staticmethod
+    def _draw_camera_export(layout, context, settings):
+        box = layout.box()
+        box.label(text="Camera → After Effects", icon="CAMERA_DATA")
+        col = box.column()
+        cam = context.scene.camera
+        col.label(text=f"Camera: {cam.name}" if cam else "No active camera", icon="OUTLINER_OB_CAMERA"
+                  if cam else "ERROR")
+        row = col.row(align=True)
+        row.operator("ae_split.add_text_anchor", icon="EMPTY_AXIS")
+        n_anchors = len(ae_export.anchor_objects(context))
+        col.label(text=f"{n_anchors} anchor(s) (tagged Empties + selected objects)", icon="INFO")
+        col.prop(settings, "px_per_unit")
+        col.prop(settings, "text_placeholder")
+        col.prop(settings, "import_renders")
+        big = col.column()
+        big.scale_y = 1.4
+        big.operator("ae_split.export_camera_jsx", icon="EXPORT")
 
     @staticmethod
     def _draw_background(box, scene, settings):

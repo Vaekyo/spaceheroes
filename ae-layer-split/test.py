@@ -23,7 +23,7 @@ import traceback
 
 import bpy
 from bpy_extras.object_utils import world_to_camera_view
-from mathutils import Vector
+from mathutils import Euler, Matrix, Vector
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ARGS = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -48,7 +48,7 @@ def check(cond, msg):
 bpy.ops.wm.read_factory_settings(use_empty=True)   # also disables installed add-ons
 sys.path.insert(0, HERE)
 import ae_layer_split  # noqa: E402
-from ae_layer_split import compat, core  # noqa: E402
+from ae_layer_split import ae_export, compat, core  # noqa: E402
 
 ae_layer_split.register()
 print(f"Blender {bpy.app.version_string} | node-group compositor API: "
@@ -542,9 +542,9 @@ def test_panel_draw():
         if action:
             run(getattr(bpy.ops.ae_split, action))
         log = []
-        fake = type("FakePanel", (), {"layout": FakeLayout(log),
-                                      "_draw_background": staticmethod(panel._draw_background),
-                                      "_draw_status": staticmethod(panel._draw_status)})()
+        helpers = {name: staticmethod(getattr(panel, name))
+                   for name in ("_draw_background", "_draw_status", "_draw_camera_export")}
+        fake = type("FakePanel", (), {"layout": FakeLayout(log), **helpers})()
         try:
             panel.draw(fake, bpy.context)
             problems = [m for m in log if m]
@@ -555,9 +555,157 @@ def test_panel_draw():
     run(bpy.ops.ae_split.remove_setup)
 
 
+def blender_pixel(scene, point):
+    """Blender's own projection of a world point, in pixels with Y down."""
+    co = world_to_camera_view(scene, scene.camera, Vector(point))
+    w, h = ae_export.render_size(scene)
+    return co.x * w, (1.0 - co.y) * h
+
+
+def ae_world(scene, point, ppu):
+    w, h = ae_export.render_size(scene)
+    p = ae_export.C @ Vector(point) * ppu
+    return (p.x + w / 2.0, p.y + h / 2.0, p.z)
+
+
+def max_reprojection_error(scene, cam_samples, points_by_frame, ppu):
+    w, h = ae_export.render_size(scene)
+    worst = 0.0
+    for sample in cam_samples:
+        scene.frame_set(sample["frame"])
+        for point in points_by_frame(sample["frame"]):
+            bx, by = blender_pixel(scene, point)
+            ax, ay = ae_export.ae_project(sample, ae_world(scene, point, ppu), w, h)
+            worst = max(worst, abs(bx - ax), abs(by - ay))
+    return worst
+
+
+def test_camera_export():
+    print("\n[Camera -> After Effects export]")
+    import json as _json
+    import subprocess
+    scene = build_scene("CYCLES")
+    s = configure(scene, "PNG")
+    s.px_per_unit = 100.0
+    s.text_placeholder = "cantik"
+    scene.render.resolution_x, scene.render.resolution_y = 1920, 1080
+    scene.render.resolution_percentage = 75
+    scene.render.fps, scene.render.fps_base = 24, 1.001
+    scene.frame_start, scene.frame_end = 1, 24
+
+    # Moving camera: dolly, pan, tilt, roll and a lens change.
+    cam = scene.camera
+    cam.rotation_mode = "XYZ"
+    for frame, loc, rot, lens in ((1, (0, -10, 1.5), (90, 0, 0), 35),
+                                  (12, (2, -8, 2.0), (85, 8, 15), 42),
+                                  (24, (3, -7, 2.5), (80, -6, 25), 50)):
+        cam.location, cam.rotation_euler = loc, [math.radians(a) for a in rot]
+        cam.data.lens = lens
+        cam.keyframe_insert("location", frame=frame)
+        cam.keyframe_insert("rotation_euler", frame=frame)
+        cam.data.keyframe_insert("lens", frame=frame)
+
+    scene.cursor.location = (1.0, -2.0, 2.0)
+    check(run(bpy.ops.ae_split.add_text_anchor) == {"FINISHED"}, "Add Text Anchor finished")
+    anchor = bpy.data.objects.get(ae_export.ANCHOR_NAME)
+    check(anchor is not None and anchor.get(ae_export.ANCHOR_PROP), "anchor Empty created and tagged")
+
+    cam_samples, obj_samples = ae_export.sample_scene(scene, cam, [anchor], s.px_per_unit)
+    check(len(cam_samples) == 24, "camera sampled on every frame")
+    check(scene.frame_current == 1, "current frame restored after sampling")
+    lenses = [round(x["zoom"], 1) for x in cam_samples]
+    check(lenses[0] < lenses[-1], f"zoom follows the lens animation ({lenses[0]} -> {lenses[-1]})")
+
+    hero_corners = [obj("HeroCube").matrix_world @ Vector(c) for c in obj("HeroCube").bound_box]
+    err = max_reprojection_error(scene, cam_samples,
+                                 lambda f: [anchor.matrix_world.translation] + hero_corners,
+                                 s.px_per_unit)
+    check(err < 0.5, f"AE camera reprojects like Blender on all frames (max error {err:.4f} px)")
+
+    rot = obj_samples[anchor.name][0]["rotation"]
+    check(all(abs(a) < 1e-3 for a in rot), f"upright anchor = AE layer at zero rotation ({rot})")
+    anchor.rotation_euler = (math.radians(90), 0, math.radians(30))
+    _c, objs = ae_export.sample_scene(scene, cam, [anchor], s.px_per_unit)
+    r = objs[anchor.name][0]["rotation"]
+    expected = ae_export.C @ anchor.matrix_world.to_3x3().normalized() @ ae_export.F
+    got = ae_export.ae_rotation_matrix(*r)
+    check(max(abs(a - b) for ra, rb in zip(expected, got) for a, b in zip(ra, rb)) < 1e-4,
+          "anchor rotation rebuilds through the Y > X > Z rig")
+
+    # Cross-check with Blender's long-standing AE exporter (io_export_after_effects,
+    # convert_transform_matrix): it writes AE Orientation = (euler_ZYX.x - 90,
+    # -euler_ZYX.y, -euler_ZYX.z), which AE applies as Rx * Ry * Rz. Our Y > X > Z
+    # rig must give the same camera orientation for any rotation.
+    import random
+    random.seed(7)
+    worst = 0.0
+    for _ in range(50):
+        m = Euler([math.radians(random.uniform(-180, 180)) for _ in range(3)]).to_matrix().to_4x4()
+        e = m.to_euler("ZYX")
+        ox, oy, oz = math.degrees(e.x) - 90, -math.degrees(e.y), -math.degrees(e.z)
+        ref = (Matrix.Rotation(math.radians(ox), 3, "X") @ Matrix.Rotation(math.radians(oy), 3, "Y")
+               @ Matrix.Rotation(math.radians(oz), 3, "Z"))
+        _p, ours, _s, _e = ae_export.blender_to_ae(m, 100, 100, 100.0)
+        got = ae_export.ae_rotation_matrix(*ours)
+        worst = max(worst, max(abs(a - b) for ra, rb in zip(ref, got) for a, b in zip(ra, rb)))
+    check(worst < 1e-5, f"camera orientation matches Blender's reference AE exporter (max diff {worst:.1e})")
+
+    # Portrait frames and sensor fit modes.
+    for fit in ("AUTO", "VERTICAL", "HORIZONTAL"):
+        scene.render.resolution_x, scene.render.resolution_y = 1080, 1920
+        cam.data.sensor_fit = fit
+        cs, _o = ae_export.sample_scene(scene, cam, [], s.px_per_unit)
+        err = max_reprojection_error(scene, cs[:3], lambda f: hero_corners, s.px_per_unit)
+        check(err < 0.5, f"portrait + sensor fit {fit} matches (max error {err:.4f} px)")
+    scene.render.resolution_x, scene.render.resolution_y = 1920, 1080
+    cam.data.sensor_fit = "AUTO"
+
+    # Angle continuity: a fresh camera panning through 180 degrees.
+    pan = add_obj("PanCam", bpy.data.cameras.new("PanCam"), scene.collection, (0, 0, 1.5))
+    for frame, z in ((1, 150), (24, 210)):
+        pan.rotation_euler = (math.radians(90), 0, math.radians(z))
+        pan.keyframe_insert("rotation_euler", frame=frame)
+    cs, _o = ae_export.sample_scene(scene, pan, [], s.px_per_unit)
+    jumps = [max(abs(a - b) for a, b in zip(cs[i]["rotation"], cs[i + 1]["rotation"]))
+             for i in range(len(cs) - 1)]
+    check(max(jumps) < 20, f"no rotation jump across 180 degrees (max step {max(jumps):.2f})")
+    if max(jumps) >= 20:
+        print([tuple(round(a, 1) for a in c["rotation"]) for c in cs])
+
+    # The real operator + the generated script.
+    check(run(bpy.ops.ae_split.export_camera_jsx) == {"FINISHED"}, "Export Camera finished")
+    jsx = os.path.join(TMP, "png", ae_export.JSX_NAME)
+    check(os.path.isfile(jsx), "ae_camera.jsx written to the output folder")
+    if os.path.isfile(jsx):
+        src = open(jsx, encoding="utf-8").read()
+        data = _json.loads(src.split("var D = ", 1)[1].split(";\n", 1)[0])
+        check(data["width"] == 1440 and data["height"] == 810, "comp size uses resolution %")
+        check(abs(data["fps"] - 24 / 1.001) < 1e-3, "comp fps uses fps_base")
+        check(len(data["camera"]["times"]) == 24 and len(data["camera"]["zoom"]) == 24,
+              "24 camera keys")
+        check(len(data["anchors"]) == 1 and data["text"] == "cantik", "anchor + placeholder text")
+        check(data["footage"]["CHAR"].endswith("CHAR/CHAR_0001.png")
+              and data["footage"]["BG"].endswith("BG/BG_0001.png"), "footage paths match the renders")
+        node = shutil.which("node") or next((p for p in ("/opt/node20/bin/node",) if os.path.exists(p)), None)
+        if node:
+            js_copy = jsx[:-1]          # node only parses .js
+            shutil.copyfile(jsx, js_copy)
+            res = subprocess.run([node, "--check", js_copy], capture_output=True, text=True)
+            check(res.returncode == 0, f"jsx parses as JavaScript {res.stderr.strip()[:200]}")
+        else:
+            print("  skip  node not found, jsx syntax not checked")
+
+    # Errors
+    s.output_path = "//render/"
+    check(run(bpy.ops.ae_split.export_camera_jsx) == {"CANCELLED"}, "unsaved .blend + // path -> error")
+    s.output_path = os.path.join(TMP, "png") + os.sep
+    scene.camera = None
+    check(run(bpy.ops.ae_split.export_camera_jsx) == {"CANCELLED"}, "no camera -> error")
+
+
 def main():
     tests = (test_png_cycles, test_exr_and_reopen, test_eevee, test_make_char_and_errors,
-             test_panel_draw)
+             test_camera_export, test_panel_draw)
     for test in tests:
         try:
             test()

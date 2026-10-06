@@ -2,7 +2,7 @@
 """Scene settings shown in the AE Split panel (``scene.ae_split``)."""
 
 import bpy
-from bpy.props import BoolProperty, EnumProperty, PointerProperty, StringProperty
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, PointerProperty, StringProperty
 
 
 def _floor_poll(_self, obj):
@@ -62,6 +62,25 @@ class AESplitSettings(bpy.types.PropertyGroup):
         default="//render/",
     )
     show_bg_list: BoolProperty(name="Show background list", default=True)
+
+    # Camera -> After Effects export
+    px_per_unit: FloatProperty(
+        name="Pixels per unit",
+        description="How many AE pixels one Blender unit (metre) becomes. Only scales the "
+                    "3D space in AE; the camera match is the same for any value",
+        default=100.0, min=0.001, soft_min=1.0, soft_max=1000.0,
+    )
+    text_placeholder: StringProperty(
+        name="Placeholder text",
+        description="Text layer created in AE, parented to the first anchor and placed "
+                    "between BG and CHAR (leave empty for none)",
+        default="TEXT",
+    )
+    import_renders: BoolProperty(
+        name="Import rendered layers",
+        description="Let the AE script import the CHAR/BG renders (straight alpha) into the comp",
+        default=True,
+    )
 
 
 def register():

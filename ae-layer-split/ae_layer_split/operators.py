@@ -6,7 +6,7 @@ import traceback
 import bpy
 from bpy.props import BoolProperty
 
-from . import core
+from . import ae_export, core
 
 
 def _report_warnings(op, warnings):
@@ -133,8 +133,56 @@ class AESPLIT_OT_remove(bpy.types.Operator):
         return {"FINISHED"}
 
 
+class AESPLIT_OT_add_text_anchor(bpy.types.Operator):
+    """Add an upright Empty at the 3D cursor marking where AE text should sit"""
+
+    bl_idname = "ae_split.add_text_anchor"
+    bl_label = "Add Text Anchor"
+    bl_options = {"REGISTER", "UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene is not None
+
+    def execute(self, context):
+        empty = ae_export.add_text_anchor(context)
+        for obj in context.selected_objects:
+            obj.select_set(False)
+        empty.select_set(True)
+        context.view_layer.objects.active = empty
+        self.report({"INFO"}, f"Added '{empty.name}'. Move it to where the text should be.")
+        return {"FINISHED"}
+
+
+class AESPLIT_OT_export_camera(bpy.types.Operator):
+    """Write a .jsx that rebuilds the camera, anchors and renders in After Effects"""
+
+    bl_idname = "ae_split.export_camera_jsx"
+    bl_label = "Export Camera to AE (.jsx)"
+    bl_options = {"REGISTER"}       # only writes a file, changes no Blender data
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene is not None
+
+    def execute(self, context):
+        try:
+            path, warnings = ae_export.export_camera_jsx(context, context.scene.ae_split)
+        except core.SetupError as err:
+            self.report({"ERROR"}, str(err))
+            return {"CANCELLED"}
+        except OSError as err:
+            self.report({"ERROR"}, f"Could not write the .jsx: {err}")
+            return {"CANCELLED"}
+        _report_warnings(self, warnings)
+        self.report({"INFO"}, f"Camera exported: {path}  (AE: File > Scripts > Run Script File)")
+        return {"FINISHED"}
+
+
 classes = (
     AESPLIT_OT_make_char,
+    AESPLIT_OT_add_text_anchor,
+    AESPLIT_OT_export_camera,
     AESPLIT_OT_setup,
     AESPLIT_OT_setup_render,
     AESPLIT_OT_remove,

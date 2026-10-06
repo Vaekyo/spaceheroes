@@ -1,6 +1,6 @@
 # AE Layer Split (Blender add-on)
 
-One click splits your scene into a **character layer** and a **background layer**, ready for compositing in After Effects.
+One click splits your scene into a **character layer** and a **background layer**, ready for compositing in After Effects. It can also export the Blender camera to AE, so text and graphics you add in AE stick to the 3D scene with no tracking.
 
 - `CHAR_layer`: the character only. Everything else is a *holdout*, so a pillar in front of the character still cuts it out. Optionally the character's shadow lands on a transparent shadow catcher floor (Cycles).
 - `BG_layer`: everything except the character. In Cycles the character can stay *Indirect Only*, so its shadow and bounce light remain on the background.
@@ -10,7 +10,7 @@ Supported and tested: **Blender 4.2 LTS, 4.5 LTS, 5.0, 5.2 LTS**. The 5.0 compos
 
 ## Install
 
-1. Download `dist/ae_layer_split-1.0.0.zip`. Don't unzip it.
+1. Download `dist/ae_layer_split-1.1.0.zip`. Don't unzip it.
 2. In Blender 4.2 or newer: **Edit → Preferences → Get Extensions → ⌄ (top right) → Install from Disk…** and pick the zip. You can also drag the zip into the Blender window.
    - Legacy route (same zip, uses `bl_info`): **Preferences → Add-ons → ⌄ → Install from Disk…**, then tick *AE Layer Split*.
 3. In the 3D Viewport press **N** and open the **AE Split** tab.
@@ -75,6 +75,28 @@ Lights and cameras are never holdout or excluded.
 
 The EXR is written single-part (interleaved), the layout older and newer AE versions both read.
 
+## Camera to After Effects (3D text that sticks to the scene)
+
+The renders are CG, so you already have the exact camera: no need to 3D-track them in AE. Export it instead, and every text change stays live in AE without re-rendering.
+
+1. In Blender, put the 3D cursor where the text should sit and press **Add Text Anchor**. It adds an Empty `AE_TEXT_ANCHOR` standing upright and facing the front view (-Y). Move, rotate or animate it as you like. Any objects you select also get exported as anchors.
+2. Set the options in the **Camera → After Effects** box:
+   - **Pixels per unit**: AE pixels per Blender metre (default 100). It only scales the 3D space; the match is the same for any value.
+   - **Placeholder text**: e.g. `cantik`. Leave it empty for no text layer.
+   - **Import rendered layers**: let the script import the CHAR/BG renders.
+3. Press **Export Camera to AE (.jsx)**. It writes `ae_camera.jsx` into the output folder.
+4. In After Effects: **File → Scripts → Run Script File…** → `ae_camera.jsx`. You get a new comp with your render size, fps and frame numbers, containing:
+   - `CHAR` (top), then your 3D text, then `BG` (bottom). PNGs are already set to straight alpha.
+   - `Camera Rig` (null) → `Camera Rig X` (null) → the camera, keyframed on every frame (position, rotation, zoom).
+   - One null chain per anchor (`AE_TEXT_ANCHOR` → `… X` → `… Z`). The text is parented to the last one, so it sits exactly at the Empty.
+5. Edit the text layer freely (font, size, animators, effects). Keep it **between BG and CHAR** so the character stays in front of it.
+
+Notes:
+- Run the export after rendering, or render first and then run the .jsx. If the renders don't exist yet, the script still builds the comp and tells you which files it couldn't find.
+- **Why the rig:** each null carries one rotation axis (Y, then X, then Z), so the camera can't come out in the wrong rotation order. The math is tested to reproject every point within 0.001 px of Blender's own camera, and the axis signs are checked against Blender's long-standing AE exporter.
+- **Quick check in AE:** turn on the anchor null (or put a small solid on it) and scrub. It should stay glued to the same spot of the BG render.
+- **Not supported:** lens shift (set Shift X/Y to 0), orthographic cameras, and camera switching with markers. The panel warns about each of these.
+
 ## Test
 
 ```
@@ -95,6 +117,7 @@ The test loads the add-on from the `ae_layer_split/` folder next to it (no insta
 - Make CHAR from Selected
 - error cases
 - the panel draw
+- camera export: a moving camera with a lens change, resolution %, fps_base, portrait and sensor fit modes, compared pixel-for-pixel with Blender's projection; the JSX is syntax-checked with Node if it is installed
 
 ## Source layout
 
@@ -103,9 +126,10 @@ ae_layer_split/
   __init__.py              bl_info + register/unregister
   blender_manifest.toml    Extensions manifest (4.2+)
   compat.py                4.x vs 5.x compositor / File Output API
+  ae_export.py             camera/anchor export to an After Effects .jsx
   core.py                  scene analysis, Setup Layers, Remove Setup
   properties.py            scene settings (scene.ae_split)
-  operators.py             the four operators
+  operators.py             operators
   ui.py                    N-panel
 test.py                    background test
 build.py                   builds dist/ae_layer_split-<version>.zip
